@@ -26,13 +26,21 @@ Para activar usuarios, historial compartido y fotos en la nube usa Supabase (pla
 4. En **Project Settings > API** copia la URL y la clave `anon public`
 5. En Netlify: **Site configuration > Environment variables** agrega
    `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, y vuelve a desplegar
-6. Las cuentas las crea solo el jefe, desde Supabase (la app no tiene registro):
-   **Authentication > Users > Add user > Create new user**, con correo y clave, y marca **Auto Confirm User**.
-   Crea primero tu cuenta: **la primera cuenta queda como jefe**. Las siguientes son empleados.
-7. Después, en **Authentication > Sign In / Providers**, desactiva **Allow new users to sign up**.
-   Las cuentas creadas desde el panel siguen funcionando.
-8. Ingresa a la app con tu cuenta. En el menú de tu foto > Ajustes > Equipo escribe el nombre de cada
-   empleado y fija su rol y porcentaje.
+6. Crea tu cuenta de jefe una sola vez: **Authentication > Users > Add user > Create new user**,
+   con correo y clave, y marca **Auto Confirm User**. La primera cuenta queda como jefe.
+7. En **Authentication > Sign In / Providers** desactiva **Allow new users to sign up**.
+8. Despliega la función que crea las cuentas desde la app (ver "Gestión de cuentas desde la app").
+   Desde ahí, el jefe crea y administra a los empleados en el menú de su foto > Equipo.
+
+### Gestión de cuentas desde la app
+La app trae un panel **Equipo** (solo jefe): crear empleados, cambiar nombre, rol y porcentaje,
+cambiar claves y desactivar cuentas, sin entrar a Supabase. Para eso usa una función del lado del
+servidor (la clave de servicio nunca llega al celular):
+1. En el SQL Editor ejecuta el bloque final de `supabase/schema.sql` ("Gestion de cuentas desde la app").
+2. En Supabase: **Edge Functions > Deploy a new function > Via Editor**, nombre `admin-usuarios`,
+   pega el contenido de `supabase/functions/admin-usuarios/index.ts` y despliega.
+   (Con la CLI: `supabase functions deploy admin-usuarios`.)
+Las claves necesarias las provee Supabase automáticamente a la función.
 
 ### Bolsa de propinas
 Cada moto puede tener una propina (se anota tocando la moto). La propina no entra en el porcentaje:
@@ -49,3 +57,11 @@ Los turnos van de 7 a. m. a 7 p. m. y de 7 p. m. a 7 a. m.; la madrugada cuenta 
 
 Cuando todos los empleados ya tengan cuenta, en Supabase (Authentication > Sign In / Providers)
 puedes desactivar "Allow new users to sign up" para que nadie más se registre.
+
+## Uso en celulares
+- Es una app instalable (PWA): en Android, menu del navegador > Instalar app; en iPhone, Safari > Compartir > Agregar a pantalla de inicio. Tambien hay una indicacion en Ajustes.
+- Abre sin conexion (la pantalla); para registrar y consultar datos se necesita internet. Sin conexion aparece un aviso.
+- El boton "atras" del celular cierra menus y hojas en vez de salir de la app.
+- Las fotos se pueden tomar con la camara o elegir de la galeria.
+- Se adapta a pantallas desde 360 px, al teclado abierto y a la orientacion horizontal.
+- Si cambias la app, vuelve a desplegar: el service worker (`public/sw.js`) toma la version nueva al abrir.

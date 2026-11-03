@@ -6,6 +6,7 @@ import { useAuth, AuthScreen } from "./Auth.jsx";
 import { useStore, savePhoto, dropPhoto, uid, fechaOp } from "./store.js";
 import { ModelPicker, Thumb } from "./parts.jsx";
 import History from "./History.jsx";
+import Equipo from "./Equipo.jsx";
 import { Icon } from "./icons.jsx";
 
 const AKEY = "motos-ajustes-v3";
@@ -79,6 +80,60 @@ export default function App() {
   );
 }
 
+// Instalacion como app: el navegador avisa una sola vez y desde temprano, asi que se guarda aqui.
+let deferredInstall = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstall = null;
+  });
+}
+const isStandalone = () =>
+  (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const installApp = async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  try {
+    await deferredInstall.userChoice;
+  } catch (e) {}
+  deferredInstall = null;
+};
+
+// El boton "atras" del celular cierra hojas y menus en vez de salir de la app.
+function useBackClose(active, close) {
+  const ref = useRef(close);
+  ref.current = close;
+  useEffect(() => {
+    if (!active) return;
+    window.history.pushState({ mw: 1 }, "");
+    const onPop = () => ref.current();
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (window.history.state && window.history.state.mw) window.history.back();
+    };
+  }, [active]);
+}
+
+function useOnline() {
+  const [on, setOn] = useState(() => navigator.onLine !== false);
+  useEffect(() => {
+    const a = () => setOn(true);
+    const b = () => setOn(false);
+    window.addEventListener("online", a);
+    window.addEventListener("offline", b);
+    return () => {
+      window.removeEventListener("online", a);
+      window.removeEventListener("offline", b);
+    };
+  }, []);
+  return on;
+}
+
 function Main({ user, profile, setProfile }) {
   const cloud = !!sb;
   const isJefe = cloud && profile.rol === "jefe";
@@ -100,8 +155,15 @@ function Main({ user, profile, setProfile }) {
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState(null);
   const [pool, setPool] = useState(null);
-  const [team, setTeam] = useState([]);
   const fileRef = useRef(null);
+  const galRef = useRef(null);
+  const online = useOnline();
+  useBackClose(menu || !!sheet || !!detail || open, () => {
+    setOpen(false);
+    setDetail(null);
+    setSheet(null);
+    setMenu(false);
+  });
 
   const nombre = cloud ? profile.nombre : aj.emp;
   const pct = cloud ? profile.pct : clampPct(aj.pct);
@@ -155,23 +217,11 @@ function Main({ user, profile, setProfile }) {
     });
   }, [cloud]);
 
-  useEffect(() => {
-    if (!isJefe) return;
-    sb.from("profiles").select("*").order("created_at").then(({ data }) => data && setTeam(data));
-  }, [isJefe]);
-
   const saveExtras = () => {
     if (isJefe) sb.from("config").upsert({ clave: "extras", valor: aj.extrasCat }).then(({ error }) => error && setMsg("No se pudieron guardar los precios."));
   };
   const setPrecioExtra = (i, val) =>
     setAj((a) => ({ ...a, extrasCat: a.extrasCat.map((x, j) => (j === i ? { ...x, v: parseInt(val.replace(/\D/g, ""), 10) || 0 } : x)) }));
-
-  const saveTeam = async (id, ch) => {
-    setTeam((p) => p.map((x) => (x.id === id ? { ...x, ...ch } : x)));
-    const { error } = await sb.from("profiles").update(ch).eq("id", id);
-    if (error) setMsg("No se pudo guardar el cambio del equipo.");
-    else if (id === user.id) setProfile((p) => ({ ...p, ...ch }));
-  };
 
   const changePct = (v) => {
     const c = cleanPct(v);
@@ -295,6 +345,11 @@ function Main({ user, profile, setProfile }) {
                       <b>{nombre || "Empleado"}</b>
                       <small>{rolLabel} - {pct}% para el empleado</small>
                     </div>
+                    {isJefe && (
+                      <button className="mi" role="menuitem" onClick={goMenu(() => setSheet("equipo"))}>
+                        <Icon n="users" size={18} />Equipo
+                      </button>
+                    )}
                     <button className="mi" role="menuitem" onClick={goMenu(() => setSheet("ajustes"))}>
                       <Icon n="gear" size={18} />Ajustes
                     </button>
@@ -321,6 +376,10 @@ function Main({ user, profile, setProfile }) {
             <button className={view === "hist" ? "on" : ""} onClick={() => setView("hist")}><Icon n="clock" size={18} />Historial</button>
           </div>
         </div>
+
+        {cloud && !online && (
+          <div className="offline" role="status">Sin conexión. No podrás guardar cambios hasta recuperarla.</div>
+        )}
 
         {st.loading && <p className="loading">Cargando datos...</p>}
 
@@ -430,6 +489,8 @@ function Main({ user, profile, setProfile }) {
         </div>
       )}
 
+      {sheet === "equipo" && <Equipo user={user} setProfile={setProfile} onClose={() => setSheet(null)} />}
+
       {sheet === "resumen" && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setSheet(null)}>
           <div className="sheet">
@@ -499,24 +560,16 @@ function Main({ user, profile, setProfile }) {
                 </div>
               ))}
             </div>
-            {isJefe && (
-              <div className="field">
-                <label>Equipo</label>
-                {team.map((p) => (
-                  <div className="team" key={p.id}>
-                    <input className="team-in" defaultValue={p.nombre} placeholder="Nombre" aria-label="Nombre del empleado"
-                      onBlur={(e) => e.target.value.trim() !== (p.nombre || "") && saveTeam(p.id, { nombre: e.target.value.trim() })} />
-                    <select defaultValue={p.rol} disabled={p.id === user.id} aria-label={`Rol de ${p.nombre}`}
-                      onChange={(e) => saveTeam(p.id, { rol: e.target.value })}>
-                      <option value="empleado">Empleado</option>
-                      <option value="jefe">Jefe</option>
-                    </select>
-                    <input className="mini sm" inputMode="numeric" defaultValue={p.pct} aria-label={`Porcentaje de ${p.nombre}`}
-                      onBlur={(e) => saveTeam(p.id, { pct: Number(cleanPct(e.target.value)) || 0 })} />
-                    <span className="pc">%</span>
-                  </div>
-                ))}
-                <small className="hint">El porcentaje nuevo aplica a las motos que registre ese empleado de ahora en adelante.</small>
+            {!isStandalone() && (
+              <div className="field"><label>Instalar en el celular</label>
+                {deferredInstall ? (
+                  <button className="opt c full" onClick={installApp}>Instalar app</button>
+                ) : (
+                  <small className="hint">
+                    {isIOS() ? "En Safari toca Compartir y luego Agregar a pantalla de inicio."
+                      : "En el menú del navegador elige Instalar app o Agregar a pantalla de inicio."}
+                  </small>
+                )}
               </div>
             )}
             <button className="full gap" onClick={() => setSheet(null)}><Icon n="check" size={18} />Listo</button>
@@ -580,10 +633,16 @@ function Main({ user, profile, setProfile }) {
                 <Thumb key={f} id={f} onRemove={() => { dropPhoto(f); st.patchRow(sel.id, { fotos: sel.fotos.filter((x) => x !== f) }); }} />
               ))}
             </div>
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={addFotos} />
-            <button className="opt c" disabled={sel.fotos.length >= MAX_FOTOS} onClick={() => fileRef.current && fileRef.current.click()}>
-              <Icon n="camera" size={18} />Tomar o elegir foto
-            </button>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={addFotos} />
+            <input ref={galRef} type="file" accept="image/*" multiple hidden onChange={addFotos} />
+            <div className="row">
+              <button className="opt c" disabled={sel.fotos.length >= MAX_FOTOS} onClick={() => fileRef.current && fileRef.current.click()}>
+                <Icon n="camera" size={18} />Tomar foto
+              </button>
+              <button className="opt c" disabled={sel.fotos.length >= MAX_FOTOS} onClick={() => galRef.current && galRef.current.click()}>
+                <Icon n="image" size={18} />Galería
+              </button>
+            </div>
 
             <button className="full gap" onClick={() => setDetail(null)}><Icon n="check" size={18} />Listo</button>
           </div>

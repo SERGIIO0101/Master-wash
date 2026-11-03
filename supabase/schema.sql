@@ -195,3 +195,21 @@ end $$;
 drop trigger if exists lavadas_lock_trg on public.lavadas;
 create trigger lavadas_lock_trg before insert or update or delete on public.lavadas
   for each row execute function public.lavadas_lock();
+
+-- Gestion de cuentas desde la app (si ya habias ejecutado este archivo antes, ejecuta solo desde aqui hasta el final)
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists activo boolean not null default true;
+update public.profiles p set email = u.email from auth.users u where u.id = p.id and p.email is null;
+
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, nombre, email, rol)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'nombre', ''),
+    new.email,
+    case when exists (select 1 from public.profiles) then 'empleado' else 'jefe' end
+  );
+  return new;
+end $$;

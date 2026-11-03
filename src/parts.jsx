@@ -20,7 +20,7 @@ export function ModelPicker({ id, value, onChange }) {
   };
   return (
     <>
-      <button type="button" id={id} className={"picker" + (value ? "" : " empty")} onClick={() => setOpen(true)}>
+      <button type="button" id={id} className={"picker" + (value ? "" : " unset")} onClick={() => setOpen(true)}>
         {value || "Seleccionar modelo"}
       </button>
       {open && (
